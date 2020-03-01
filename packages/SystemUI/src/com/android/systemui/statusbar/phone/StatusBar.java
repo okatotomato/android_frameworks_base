@@ -125,6 +125,10 @@ import android.view.WindowManager;
 import android.view.WindowManagerGlobal;
 import android.view.accessibility.AccessibilityManager;
 import android.view.animation.AccelerateInterpolator;
+import android.view.animation.AlphaAnimation;
+import android.view.animation.Animation;
+import android.view.animation.AnimationUtils;
+import android.view.animation.Interpolator;
 import android.widget.DateTimeView;
 
 import com.android.internal.annotations.VisibleForTesting;
@@ -199,6 +203,7 @@ import com.android.systemui.statusbar.NotificationShelf;
 import com.android.systemui.statusbar.NotificationViewHierarchyManager;
 import com.android.systemui.statusbar.PulseExpansionHandler;
 import com.android.systemui.statusbar.ScrimView;
+import com.android.systemui.statusbar.AODDimView;
 import com.android.systemui.statusbar.StatusBarState;
 import com.android.systemui.statusbar.SysuiStatusBarStateController;
 import com.android.systemui.statusbar.VibratorHelper;
@@ -490,6 +495,7 @@ public class StatusBar extends SystemUI implements DemoMode,
         }
     };
 
+    private AODDimView mAODDimView;
 
     // ensure quick settings is disabled until the current user makes it through the setup wizard
     @VisibleForTesting
@@ -643,6 +649,10 @@ public class StatusBar extends SystemUI implements DemoMode,
                 public void onDreamingStateChanged(boolean dreaming) {
                     if (dreaming) {
                         maybeEscalateHeadsUp();
+                    }
+                    if (mAODDimView != null) {
+                        if (dreaming) mAODDimView.setVisible(true, true);
+                        if (!dreaming) mAODDimView.setVisible(false);
                     }
                 }
 
@@ -899,6 +909,8 @@ public class StatusBar extends SystemUI implements DemoMode,
 
         mStackScroller = mStatusBarWindow.findViewById(R.id.notification_stack_scroller);
         mZenController.addCallback(this);
+        mQSBlurView = mStatusBarWindow.findViewById(R.id.qs_blur);
+        mAODDimView = mStatusBarWindow.findViewById(R.id.aod_screen_dim);
         NotificationListContainer notifListContainer = (NotificationListContainer) mStackScroller;
         mNotificationLogger.setUpWithContainer(notifListContainer);
 
@@ -4054,6 +4066,9 @@ public class StatusBar extends SystemUI implements DemoMode,
             resolver.registerContentObserver(Settings.System.getUriFor(
                     Settings.System.STATUS_BAR_BRIGHTNESS_CONTROL),
                     false, this, UserHandle.USER_ALL);
+            resolver.registerContentObserver(Settings.System.getUriFor(
+                    Settings.System.SCREEN_OFF_FOD),
+                    false, this, UserHandle.USER_ALL);
         }
          @Override
         public void onChange(boolean selfChange, Uri uri) {
@@ -4061,16 +4076,10 @@ public class StatusBar extends SystemUI implements DemoMode,
         }
 
         public void update() {
-            setHeadsUpStoplist();
-            setHeadsUpBlacklist();
-            setScreenBrightnessMode();
-            if (mStatusBarWindow != null) {
-                mStatusBarWindow.updateSettings();
-            }
-            USE_OLD_MOBILETYPE = Settings.System.getIntForUser(mContext.getContentResolver(),
-	            Settings.System.OMNI_USE_OLD_MOBILETYPE, 0,
-        	    UserHandle.USER_CURRENT) != 0;
-            TelephonyIcons.updateIcons(USE_OLD_MOBILETYPE);
+            setAmbientVis();
+            handleCutout(null);
+            updateKeyguardStatusSettings();
+            updateAODDimView();
         }
     }
 
@@ -4094,6 +4103,11 @@ public class StatusBar extends SystemUI implements DemoMode,
     private void setHeadsUpBlacklist() {
         if (mPresenter != null)
             mPresenter.setHeadsUpBlacklist();
+    }
+
+    private void updateAODDimView() {
+        mAODDimView.setEnabled(Settings.System.getIntForUser(mContext.getContentResolver(),
+            Settings.System.SCREEN_OFF_FOD, 0, UserHandle.USER_CURRENT) != 0);
     }
 
     public int getWakefulnessState() {
@@ -4370,6 +4384,7 @@ public class StatusBar extends SystemUI implements DemoMode,
                 public void onPulseStarted() {
                     callback.onPulseStarted();
                     updateNotificationPanelTouchState();
+                    mAODDimView.setVisible(false);
                     setPulsing(true);
                 }
 
@@ -4382,6 +4397,7 @@ public class StatusBar extends SystemUI implements DemoMode,
                     if (mStatusBarWindow != null) {
                         mStatusBarWindow.suppressWakeUpGesture(false);
                     }
+                    mAODDimView.setVisible(true);
                     setPulsing(false);
                 }
 
